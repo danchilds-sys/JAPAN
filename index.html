@@ -203,28 +203,6 @@ footer {
 #filter-fab:hover { background: rgba(250,224,97,0.95); transform: scale(1.04); }
 #filter-fab.active { background: rgba(250,200,50,0.85); }
 
-#find-me-btn {
-  position: absolute;
-  bottom: 80px;
-  right: 10px;
-  z-index: 1000;
-  background: white;
-  border: 2px solid rgba(0,0,0,0.2);
-  border-radius: 4px;
-  width: 34px;
-  height: 34px;
-  cursor: pointer;
-  font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-  transition: background .15s;
-}
-#find-me-btn:hover { background: #f4f4f4; }
-#find-me-btn.locating { animation: pulse 1s infinite; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-
 #filter-active-dot { color: #FAE061; font-size: 10px; line-height: 1; }
 #filter-drawer {
   display: none;
@@ -1065,7 +1043,6 @@ body.modal-open {
 <div id="split-view">
   <div id="map-col">
     <div id="leaflet-map"></div>
-    <button id="find-me-btn" title="Show my location" onclick="findMe()">📍</button>
   </div>
   <div id="list-col">
     <div id="list-inner">
@@ -3556,60 +3533,61 @@ window.addEventListener('load',function(){
   lmap=L.map('leaflet-map',{zoomControl:true,attributionControl:true});
   L.control.scale({imperial:true,metric:true,position:'bottomleft'}).addTo(lmap);
 
+  // Locate control
+  var LocateControl = L.Control.extend({
+    options: { position: 'bottomright' },
+    onAdd: function() {
+      var btn = L.DomUtil.create('button', '');
+      btn.innerHTML = '📍';
+      btn.title = 'Show my location';
+      btn.style.cssText = 'width:34px;height:34px;font-size:18px;background:white;border:2px solid rgba(0,0,0,0.2);border-radius:4px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;';
+      L.DomEvent.on(btn, 'click', function(e) {
+        L.DomEvent.stopPropagation(e);
+        btn.innerHTML = '⏳';
+        lmap.locate({setView: false, enableHighAccuracy: true, timeout: 10000});
+        lmap.once('locationfound locationerror', function() { btn.innerHTML = '📍'; });
+      });
+      return btn;
+    }
+  });
+  new LocateControl().addTo(lmap);
+  initLocate();
+
 var userLocationMarker = null;
 var userLocationCircle = null;
 
-function findMe() {
-  var btn = document.getElementById('find-me-btn');
-  if (!navigator.geolocation) {
-    alert('Geolocation is not supported by your browser.');
-    return;
-  }
-  btn.classList.add('locating');
-  btn.textContent = '⏳';
-  navigator.geolocation.getCurrentPosition(
-    function(pos) {
-      var lat = pos.coords.latitude;
-      var lng = pos.coords.longitude;
-      var accuracy = pos.coords.accuracy;
+// Use Leaflet's built-in locate after map is ready
+function initLocate() {
+  lmap.on('locationfound', function(e) {
+    if (userLocationMarker) lmap.removeLayer(userLocationMarker);
+    if (userLocationCircle) lmap.removeLayer(userLocationCircle);
 
-      // Remove existing markers
-      if (userLocationMarker) lmap.removeLayer(userLocationMarker);
-      if (userLocationCircle) lmap.removeLayer(userLocationCircle);
+    var blueIcon = L.divIcon({
+      className: '',
+      html: '<div style="width:14px;height:14px;background:#4A90E2;border:3px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);"></div>',
+      iconSize: [14,14],
+      iconAnchor: [7,7]
+    });
 
-      // Blue dot marker
-      var blueIcon = L.divIcon({
-        className: '',
-        html: '<div style="width:14px;height:14px;background:#4A90E2;border:3px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);"></div>',
-        iconSize: [14,14],
-        iconAnchor: [7,7]
-      });
+    userLocationMarker = L.marker(e.latlng, {icon: blueIcon, zIndexOffset: 1000})
+      .addTo(lmap)
+      .bindPopup('<strong>You are here</strong><br>Accuracy: ~' + Math.round(e.accuracy) + 'm')
+      .openPopup();
 
-      userLocationMarker = L.marker([lat, lng], {icon: blueIcon, zIndexOffset: 1000})
-        .addTo(lmap)
-        .bindPopup('<strong>You are here</strong><br>Accuracy: ~' + Math.round(accuracy) + 'm');
+    userLocationCircle = L.circle(e.latlng, {
+      radius: e.accuracy,
+      color: '#4A90E2',
+      fillColor: '#4A90E2',
+      fillOpacity: 0.1,
+      weight: 1
+    }).addTo(lmap);
 
-      // Accuracy circle
-      userLocationCircle = L.circle([lat, lng], {
-        radius: accuracy,
-        color: '#4A90E2',
-        fillColor: '#4A90E2',
-        fillOpacity: 0.1,
-        weight: 1
-      }).addTo(lmap);
+    lmap.setView(e.latlng, 15);
+  });
 
-      lmap.setView([lat, lng], 15, {animate: true});
-
-      btn.classList.remove('locating');
-      btn.textContent = '📍';
-    },
-    function(err) {
-      btn.classList.remove('locating');
-      btn.textContent = '📍';
-      alert('Could not get your location. Please check location permissions.');
-    },
-    {enableHighAccuracy: true, timeout: 10000, maximumAge: 30000}
-  );
+  lmap.on('locationerror', function(e) {
+    alert('Could not get your location: ' + e.message);
+  });
 }
 
   L.tileLayer(ESRI,{attribution:'Tiles © Esri',maxZoom:20}).addTo(lmap);
